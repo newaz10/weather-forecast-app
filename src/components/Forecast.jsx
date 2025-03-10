@@ -33,24 +33,33 @@ const Forecast = () => {
     "13n": snow_icon,
   };
 
-  const search = async (city) => {
-    if (!city.trim()) {
-      setError("Please enter a city name.");
-      return;
-    }
-
+  const fetchWeatherByCoordinates = async (lat, lon) => {
     setLoading(true);
-    setError("");
+    setError(""); // Clear previous errors
+    setWeatherData(null); // Clear previous weather data
+    setForecastData([]); // Clear previous forecast data
 
     try {
       // Get current weather
-      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
+      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
       const currentResponse = await fetch(currentUrl);
+
+      if (!currentResponse.ok) {
+        const errorData = await currentResponse.json();
+        throw new Error(errorData.message || "Failed to fetch weather data.");
+      }
+
       const currentData = await currentResponse.json();
 
       // Get 5-day forecast
-      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
+      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
       const forecastResponse = await fetch(forecastUrl);
+
+      if (!forecastResponse.ok) {
+        const errorData = await forecastResponse.json();
+        throw new Error(errorData.message || "Failed to fetch forecast data.");
+      }
+
       const forecastResult = await forecastResponse.json();
 
       if (!currentData || !currentData.weather || !currentData.main) {
@@ -82,14 +91,98 @@ const Forecast = () => {
       setForecastData(Object.values(dailyForecast).slice(0, 5));
     } catch (error) {
       console.error("Error fetching weather data:", error);
-      setError("Failed to fetch weather data. Please try again.");
+      setError(error.message || "An unexpected error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchWeatherByCity = async (city) => {
+    if (!city.trim()) {
+      setError("Please enter a valid city name.");
+      return;
+    }
+
+    setLoading(true);
+    setError(""); // Clear previous errors
+    setWeatherData(null); // Clear previous weather data
+    setForecastData([]); // Clear previous forecast data
+
+    try {
+      // Get current weather
+      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
+      const currentResponse = await fetch(currentUrl);
+
+      if (!currentResponse.ok) {
+        const errorData = await currentResponse.json();
+        throw new Error(errorData.message || "Failed to fetch weather data.");
+      }
+
+      const currentData = await currentResponse.json();
+
+      // Get 5-day forecast
+      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=metric&appid=${import.meta.env.VITE_APP_ID}`;
+      const forecastResponse = await fetch(forecastUrl);
+
+      if (!forecastResponse.ok) {
+        const errorData = await forecastResponse.json();
+        throw new Error(errorData.message || "Failed to fetch forecast data.");
+      }
+
+      const forecastResult = await forecastResponse.json();
+
+      if (!currentData || !currentData.weather || !currentData.main) {
+        throw new Error("Invalid weather data received.");
+      }
+
+      // Process forecast data (group by day)
+      const dailyForecast = {};
+      forecastResult.list.forEach((item) => {
+        const date = item.dt_txt.split(" ")[0];
+        if (!dailyForecast[date]) {
+          dailyForecast[date] = {
+            date,
+            temp: item.main.temp,
+            icon: item.weather[0].icon,
+            description: item.weather[0].description,
+          };
+        }
+      });
+
+      setWeatherData({
+        humidity: currentData.main.humidity,
+        windSpeed: currentData.wind.speed,
+        temperature: Math.floor(currentData.main.temp),
+        location: currentData.name,
+        icon: allIcons[currentData.weather[0].icon] || clear_icon,
+      });
+
+      setForecastData(Object.values(dailyForecast).slice(0, 5));
+    } catch (error) {
+      console.error("Error fetching weather data:", error);
+      setError(error.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    search("Dhaka");
+    // Try to fetch weather based on user's location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          fetchWeatherByCoordinates(latitude, longitude);
+        },
+        () => {
+          // Fallback to Dhaka if geolocation fails
+          fetchWeatherByCity("Dhaka");
+        }
+      );
+    } else {
+      // Fallback to Dhaka if geolocation is not supported
+      fetchWeatherByCity("Dhaka");
+    }
   }, []);
 
   return (
@@ -101,9 +194,9 @@ const Forecast = () => {
             placeholder="Search city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && search(city)}
+            onKeyDown={(e) => e.key === "Enter" && fetchWeatherByCity(city)}
           />
-          <button onClick={() => search(city)}>
+          <button onClick={() => fetchWeatherByCity(city)}>
             <img src={search_icon} alt="search" />
           </button>
         </div>
